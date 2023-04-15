@@ -1,0 +1,104 @@
+- name: Basic server configuration
+  hosts: all
+  
+  tasks:
+  - name: Set hostname
+    ansible.builtin.hostname:
+      name: pi
+      use: systemd
+    
+  - name: Set timezone
+    community.general.timezone:
+      name: Europe/Helsinki
+      
+  - name: Force DNF to compare mirrors
+    community.general.ini_file:
+      path: /etc/dnf/dnf.conf
+      section: main
+      option: fastestmirror
+      value: True
+  
+  - name: Allow parallel downloads for DNF
+    community.general.ini_file:
+      path: /etc/dnf/dnf.conf
+      section: main
+      option: max_parallel_downloads
+      value: 5
+      
+  - name: Set a static IP address
+    community.general.nmcli:
+      ifname: enu1u1
+      conn_name: Wired connection 1
+      ip4: 192.168.1.5/24
+      gw4: 192.168.1.1
+      dns4:
+        - 192.168.1.1
+      state: present
+      type: ethernet
+      autoconnect: yes
+      
+  - name: Install dnf-automatic for automatic updates
+    ansible.builtin.dnf:
+      name: dnf-automatic
+      state: latest
+
+  - name: Enable automatic updates
+    community.general.ini_file:
+      path: /etc/dnf/automatic.conf
+      section: commands
+      option: apply_updates
+      value: yes
+      
+  - name: Enable rebooting for automatic updates if needed
+    community.general.ini_file:
+      path: /etc/dnf/automatic.conf
+      section: commands
+      option: reboot
+      value: when-needed
+      
+  - name: Enable a Systemd timer for automatic updates
+    ansible.builtin.systemd:
+      name: dnf-automatic-install.timer
+      enabled: true
+      
+  - name: Add a new user
+    ansible.builtin.user:
+      user: erazemk
+      groups: wheel
+      append: yes
+      password: $6$f6HcOlMCG3S59HSD$GH9qFT7uUT1uHNdZuLmr.QaTaZ7p9OOqfNdaJCcDsc1/da9fKNn3sq6c42BxwW1jKI/0XiD7rQRNC2OBW1DRh/
+      
+  - name: Add SSH key to the new user for passwordless logins
+    ansible.posix.authorized_key:
+      user: erazemk
+      state: present
+      key: https://github.com/erazemk.keys
+      
+  - name: Disable password logins
+    ansible.builtin.lineinfile:
+      path: /etc/ssh/sshd_config
+      line: PasswordAuthentication no
+      state: present
+      create: true
+      
+  - name: Install additional Cockpit modules
+    ansible.builtin.dnf:
+      name:
+        - cockpit-navigator
+        - cockpit-podman
+      state: latest
+      
+  - name: Update all packages
+    ansible.builtin.dnf:
+      name: "*"
+      state: latest
+
+  - name: Cleanup unneeded packages
+    ansible.builtin.dnf:
+      autoremove: yes
+    notify: Restart the server
+
+  handlers:
+  
+  - name: Restart the server
+    ansible.builtin.reboot:
